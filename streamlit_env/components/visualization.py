@@ -24,6 +24,8 @@ def get_compatible_columns(df, viz_type):
         return numeric_cols + date_cols, numeric_cols
     elif viz_type in ['basic_bar', 'stacked_bar', 'grouped_bar']:
         return categorical_cols + date_cols, numeric_cols
+    elif viz_type == "pie":
+        return categorical_cols, numeric_cols  # Pie requires categorical labels and numeric values
     return df.columns.tolist(), df.columns.tolist()
 
 def create_advanced_visualization(df, viz_type, config):
@@ -79,6 +81,12 @@ def create_advanced_visualization(df, viz_type, config):
                             labels={config["x"]: config["x"].title(), 
                                    config["y"]: config["y"].title()})
         
+        elif viz_type == "pie":
+            return px.pie(df, names=config["x"], values=config["y"], 
+                         title=config["title"],
+                         labels={config["x"]: config["x"].title(), 
+                                config["y"]: config["y"].title()})
+        
         else:
             st.error(f"Unsupported visualization type: {viz_type}")
             return None
@@ -102,15 +110,19 @@ def visualize_data(df, client):
     
     with col1:
         viz_type = st.selectbox("Select Visualization Type", [
-            "basic_bar", "stacked_bar", "grouped_bar", "line", "scatter"
+            "basic_bar", "stacked_bar", "grouped_bar", "line", "scatter", "pie"
         ])
         
         # Get compatible columns for the selected visualization
         x_cols, y_cols = get_compatible_columns(df, viz_type)
         
         config = {}
-        config["x"] = st.selectbox("X-axis", x_cols)
-        config["y"] = st.selectbox("Y-axis", y_cols)
+        if viz_type == "pie":
+            config["x"] = st.selectbox("Labels (Categorical)", x_cols)
+            config["y"] = st.selectbox("Values (Numeric)", y_cols)
+        else:
+            config["x"] = st.selectbox("X-axis", x_cols)
+            config["y"] = st.selectbox("Y-axis", y_cols)
         
         # Add color option for bar charts
         if viz_type in ['stacked_bar', 'grouped_bar']:

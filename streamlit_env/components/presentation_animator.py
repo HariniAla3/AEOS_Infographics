@@ -1,191 +1,268 @@
 import os
 import base64
 import cv2
-import plotly.io as pio
 import plotly.graph_objects as go
+import plotly.express as px
 import streamlit as st
-from components.visualization import create_advanced_visualization
+import numpy as np
+from pathlib import Path
+import logging
+import tempfile
 
+# Configure logging
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
 
-class PresentationAnimator:
-    def __init__(self, df, insights, visualizations, duration=30):
-        """
-        Initialize the presentation animator.
-
-        Parameters:
-            df (pd.DataFrame): The dataset to visualize
-            insights (dict): Generated insights from the analysis
-            visualizations (list): List of visualization configurations
-            duration (int): Total presentation duration in seconds
-        """
-        self.df = df
-        self.insights = insights if isinstance(insights, dict) else {}
-        self.visualizations = visualizations if isinstance(visualizations, list) else []
-        self.duration = duration
-
-    def create_insight_slide(self, insight):
-        """
-        Create a slide for a single insight using Plotly.
-
-        Parameters:
-            insight (dict): Single insight from the insights collection
-
-        Returns:
-            go.Figure: Plotly figure for the insight
-        """
-        fig = go.Figure()
-        fig.add_annotation(
-            text=insight.get("title", "Insight"),
-            xref="paper", yref="paper",
-            x=0.5, y=0.8, showarrow=False,
-            font=dict(size=24, color="white"), align="center"
-        )
-        fig.add_annotation(
-            text=insight.get("description", "No description available"),
-            xref="paper", yref="paper",
-            x=0.5, y=0.5, showarrow=False,
-            font=dict(size=18, color="white"), align="center"
-        )
-        fig.add_annotation(
-            text=f"Business Impact: {insight.get('importance', 'N/A')}",
-            xref="paper", yref="paper",
-            x=0.5, y=0.2, showarrow=False,
-            font=dict(size=16, color="lightblue"), align="center"
-        )
-        fig.update_layout(template="plotly_dark", height=600, showlegend=False)
-        return fig
-
-    def generate_presentation(self):
-        """
-        Generate the complete presentation as a sequence of Plotly figures.
-
-        Returns:
-            list: List of Plotly figures representing the presentation
-        """
-        slides = []
-
-        # Add introduction
-        intro_fig = go.Figure()
-        intro_fig.add_annotation(
-            text="Data Analysis Insights & Visualizations",
-            xref="paper", yref="paper",
-            x=0.5, y=0.5, showarrow=False,
-            font=dict(size=32, color="white"), align="center"
-        )
-        intro_fig.update_layout(template="plotly_dark", height=600)
-        slides.append(intro_fig)
-
-        # Add key insights
-        for insight in self.insights.get("key_insights", []):
-            insight_slide = self.create_insight_slide(insight)
-            if insight_slide:
-                slides.append(insight_slide)
-
-        # Add visualizations
-        for viz_config in self.visualizations:
-            viz_type = viz_config.get("type", "line")
-            fig = create_advanced_visualization(self.df, viz_type, viz_config)
-            if fig:
-                slides.append(fig)
-
-        # Add conclusion
-        outro_fig = go.Figure()
-        outro_fig.add_annotation(
-            text="Thank you for viewing the presentation",
-            xref="paper", yref="paper",
-            x=0.5, y=0.5, showarrow=False,
-            font=dict(size=32, color="white"), align="center"
-        )
-        outro_fig.update_layout(template="plotly_dark", height=600)
-        slides.append(outro_fig)
-
-        return slides
-
-
-def generate_video_from_slides(slides, output_path="presentation.mp4", frame_duration=1):
+def create_animated_visualization(df, viz_config, duration=30, fps=30):
     """
-    Generate a video from slides using OpenCV.
+    Create an animated visualization with smooth transitions and effects.
+    
+    Parameters:
+        df (DataFrame): Input data
+        viz_config (dict): Visualization configuration
+        duration (int): Duration of animation in seconds
+        fps (int): Frames per second
+        
+    Returns:
+        list: List of frames for the animation
+    """
+    frames = []
+    total_frames = duration * fps
+
+    try:
+        if viz_config['type'] == 'basic_bar':
+            y_data = df[viz_config['y']].values
+            x_data = df[viz_config['x']].values
+            colors = px.colors.sequential.Blues
+
+            for i in range(total_frames):
+                progress = np.power(i / total_frames, 0.5)
+                current_y = y_data * progress
+                fig = go.Figure(data=[go.Bar(x=x_data, y=current_y, marker_color=colors[3])])
+                fig.update_layout(title=viz_config['title'], xaxis_title=viz_config['x'], yaxis_title=viz_config['y'])
+                frames.append(fig)
+
+        elif viz_config['type'] == 'stacked_bar':
+            categories = df[viz_config['x']].unique()
+            stack_cols = viz_config['stack_columns']
+            for i in range(total_frames):
+                progress = np.power(i / total_frames, 0.5)
+                data = []
+                for col in stack_cols:
+                    data.append(go.Bar(name=col, x=categories, y=df[col] * progress))
+                fig = go.Figure(data=data)
+                fig.update_layout(
+                    barmode='stack',
+                    title=viz_config['title'],
+                    xaxis_title=viz_config['x'],
+                    yaxis_title='Values',
+                )
+                frames.append(fig)
+
+        elif viz_config['type'] == 'grouped_bar':
+            categories = df[viz_config['x']].unique()
+            group_cols = viz_config['group_columns']
+            for i in range(total_frames):
+                progress = np.power(i / total_frames, 0.5)
+                data = []
+                for col in group_cols:
+                    data.append(go.Bar(name=col, x=categories, y=df[col] * progress))
+                fig = go.Figure(data=data)
+                fig.update_layout(
+                    barmode='group',
+                    title=viz_config['title'],
+                    xaxis_title=viz_config['x'],
+                    yaxis_title='Values',
+                )
+                frames.append(fig)
+
+        elif viz_config['type'] == 'line':
+            x_data = df[viz_config['x']].values
+            y_data = df[viz_config['y']].values
+            for i in range(total_frames):
+                progress = i / total_frames
+                points_to_show = max(2, int(len(x_data) * progress))
+                fig = go.Figure(data=[go.Scatter(x=x_data[:points_to_show], y=y_data[:points_to_show], mode='lines+markers')])
+                fig.update_layout(title=viz_config['title'], xaxis_title=viz_config['x'], yaxis_title=viz_config['y'])
+                frames.append(fig)
+
+        elif viz_config['type'] == 'scatter':
+            x_data = df[viz_config['x']].values
+            y_data = df[viz_config['y']].values
+            for i in range(total_frames):
+                progress = i / total_frames
+                points_to_show = max(2, int(len(x_data) * progress))
+                fig = go.Figure(data=[go.Scatter(x=x_data[:points_to_show], y=y_data[:points_to_show], mode='markers')])
+                fig.update_layout(title=viz_config['title'], xaxis_title=viz_config['x'], yaxis_title=viz_config['y'])
+                frames.append(fig)
+
+        elif viz_config['type'] == 'pie':
+            values = df[viz_config['values']].values
+            labels = df[viz_config['labels']].values
+            colors = px.colors.qualitative.Set2
+            cumulative_values = np.zeros_like(values, dtype=float)
+            frame_step = np.cumsum(values) / total_frames
+            for frame_idx in range(total_frames):
+                cumulative_values = np.minimum(values, frame_step * (frame_idx + 1))
+                fig = go.Figure(data=[
+                    go.Pie(
+                        labels=labels,
+                        values=cumulative_values,
+                        textinfo="none" if frame_idx < total_frames * 0.8 else "label+percent",
+                        marker=dict(colors=colors, line=dict(color="white", width=1)),
+                        hole=0.3
+                    )
+                ])
+                fig.update_layout(title=viz_config["title"], plot_bgcolor="white")
+                frames.append(fig)
+
+        return frames
+    except Exception as e:
+        logger.error(f"Error creating animated visualization: {str(e)}")
+        return []
+
+def generate_video_from_frames(frames, output_path=None, fps=30):
+    """
+    Generate a video file from Plotly frames.
 
     Parameters:
-        slides (list): List of Plotly figures.
-        output_path (str): Path to save the MP4 video.
-        frame_duration (int): Duration of each frame in seconds.
+        frames (list): List of Plotly figures (frames) for the animation
+        output_path (str, optional): Path where the video should be saved
+        fps (int): Frames per second for the video
 
     Returns:
-        str: Path to the saved MP4 video.
+        str: Path to the generated video file
     """
-    temp_dir = "temp_slides"
-    os.makedirs(temp_dir, exist_ok=True)
-
-    image_paths = []
     try:
-        # Save each slide as an image
-        for i, slide in enumerate(slides):
-            image_path = os.path.join(temp_dir, f"slide_{i}.png")
-            slide.write_image(image_path, format="png", width=1920, height=1080)
-            image_paths.append(image_path)
+        if output_path is None:
+            temp_dir = tempfile.mkdtemp()
+            output_path = os.path.join(temp_dir, "visualization.mp4")
+        
+        os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
+        
+        with tempfile.TemporaryDirectory() as temp_dir:
+            logger.debug(f"Created temporary directory: {temp_dir}")
+            image_files = []
+            for i, fig in enumerate(frames):
+                image_path = os.path.join(temp_dir, f"frame_{i:04d}.png")
+                try:
+                    fig.write_image(image_path, format="png")
+                    image_files.append(image_path)
+                except Exception as e:
+                    logger.error(f"Error saving frame {i}: {str(e)}")
+                    continue
+            
+            if not image_files:
+                logger.error("No frames were successfully saved")
+                return None
+            
+            first_frame = cv2.imread(image_files[0])
+            if first_frame is None:
+                logger.error("Failed to read first frame")
+                return None
+            
+            height, width, layers = first_frame.shape
+            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+            video = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+            
+            frames_written = 0
+            for image_file in image_files:
+                frame = cv2.imread(image_file)
+                if frame is not None:
+                    video.write(frame)
+                    frames_written += 1
+                else:
+                    logger.warning(f"Failed to read frame: {image_file}")
+            
+            video.release()
+            logger.info(f"Video creation completed. Wrote {frames_written} frames to {output_path}")
+            return output_path
+    except Exception as e:
+        logger.error(f"Error in generate_video_from_frames: {str(e)}")
+        return None
 
-        # Determine video properties
-        frame_size = (1920, 1080)
-        fps = 1 / frame_duration
-
-        # Create a VideoWriter object
-        video_writer = cv2.VideoWriter(output_path, cv2.VideoWriter_fourcc(*"mp4v"), fps, frame_size)
-
-        # Add images to video
-        for image_path in image_paths:
-            frame = cv2.imread(image_path)
-            video_writer.write(frame)
-
-        video_writer.release()
-        return output_path
-    finally:
-        # Cleanup temporary images
-        for image_path in image_paths:
-            os.remove(image_path)
-        os.rmdir(temp_dir)
-
-
-def add_animation_interface(df, insights, visualizations):
+def add_animation_interface(df, insights):
     """
-    Add animation interface to Streamlit app.
-
-    Parameters:
-        df (pd.DataFrame): The dataset
-        insights (dict): Generated insights
-        visualizations (list): List of visualization configurations
+    Add interface for creating and downloading animated visualizations.
     """
-    st.write("## 🎬 Interactive Presentation")
+    st.write("## 🎬 Animated Visualization")
 
-    if not isinstance(insights, dict):
-        st.error("Invalid insights format. Expected a dictionary.")
-        return
+    col1, col2 = st.columns([1, 2])
+    
+    with col1:
+        viz_type = st.selectbox(
+            "Select Visualization Type",
+            ["basic_bar", "stacked_bar", "grouped_bar", "line", "scatter", "pie"]
+        )
+        
+        numeric_cols = df.select_dtypes(include=['int64', 'float64']).columns.tolist()
+        categorical_cols = df.select_dtypes(include=['object', 'category']).columns.tolist()
 
-    duration = st.slider("Time per slide (seconds)", min_value=1, max_value=10, value=2, step=1)
+        viz_config = {
+            "type": viz_type,
+            "title": st.text_input("Title", "Animated Visualization")
+        }
 
-    if st.button("Generate Presentation"):
-        with st.spinner("Creating your presentation..."):
-            animator = PresentationAnimator(df, insights, visualizations, duration)
-            slides = animator.generate_presentation()
+        if viz_type in ['basic_bar', 'line', 'scatter']:
+            viz_config.update({
+                "x": st.selectbox("X-axis", categorical_cols if viz_type == 'basic_bar' else numeric_cols),
+                "y": st.selectbox("Y-axis", numeric_cols)
+            })
+        elif viz_type == 'pie':
+            viz_config.update({
+                "labels": st.selectbox("Labels (Categorical)", categorical_cols),
+                "values": st.selectbox("Values (Numeric)", numeric_cols)
+            })
+        elif viz_type in ['stacked_bar', 'grouped_bar']:
+            viz_config.update({
+                "x": st.selectbox("Category (X-axis)", categorical_cols),
+                f"{'stack' if viz_type == 'stacked_bar' else 'group'}_columns": 
+                    st.multiselect("Select columns to stack/group", numeric_cols)
+            })
 
-            if slides:
-                st.success("Presentation generated successfully!")
+        duration = st.slider("Animation Duration (seconds)", 1, 10, 5)
+        fps = st.slider("Frames per Second", 24, 60, 30)
+        st.info("Higher FPS will result in smoother animations but longer generation time.")
 
-                # Display slides
-                for fig in slides:
-                    st.plotly_chart(fig)
-
-                # Generate MP4 video
-                if st.button("Export as MP4 Video"):
-                    with st.spinner("Generating video..."):
-                        video_path = generate_video_from_slides(slides, frame_duration=duration)
-                        if video_path:
-                            st.success(f"Video saved at {video_path}")
-                            with open(video_path, "rb") as file:
-                                b64 = base64.b64encode(file.read()).decode()
-                                href = f'<a href="data:video/mp4;base64,{b64}" download="presentation.mp4">Download MP4 Video</a>'
-                                st.markdown(href, unsafe_allow_html=True)
+    if st.button("Generate Animation", type="primary"):
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        
+        try:
+            status_text.text("Creating animation frames...")
+            frames = create_animated_visualization(df, viz_config, duration, fps)
+            progress_bar.progress(0.5)
+            
+            if frames:
+                status_text.text("Generating video...")
+                video_path = generate_video_from_frames(frames, fps=fps)
+                progress_bar.progress(0.9)
+                
+                if video_path and os.path.exists(video_path):
+                    progress_bar.progress(1.0)
+                    status_text.text("Animation complete!")
+                    st.success("Animation generated successfully!")
+                    
+                    with open(video_path, "rb") as file:
+                        video_bytes = file.read()
+                        if video_bytes:
+                            b64 = base64.b64encode(video_bytes).decode()
+                            href = f'<a href="data:video/mp4;base64,{b64}" download="visualization.mp4">Download Animation</a>'
+                            st.markdown(href, unsafe_allow_html=True)
                         else:
-                            st.error("Failed to generate video. Please try again.")
+                            st.error("Failed to read video file for playback")
+                else:
+                    st.error("Failed to generate animation video")
             else:
-                st.error("No slides were generated.")
+                st.error("Failed to create animation frames")
+                
+        except Exception as e:
+            logger.error(f"Error in animation generation: {str(e)}")
+            st.error(f"Error generating animation: {str(e)}")
+            
+        finally:
+            progress_bar.empty()
+            status_text.empty()
+
+
+__all__ = ['create_animated_visualization', 'generate_video_from_frames', 'add_animation_interface']

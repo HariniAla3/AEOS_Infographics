@@ -30,25 +30,37 @@ def get_ai_suggestions(client, data, chart_type):
     Parameters:
         client (object): The AI client instance.
         data (DataFrame): The dataset for which suggestions are needed.
-        chart_type (str): The type of chart (e.g., 'bar', 'line').
+        chart_type (str): The type of chart (e.g., 'basic_bar', 'stacked_bar', 'grouped_bar', 'line', 'scatter', 'pie').
         
     Returns:
         dict: A JSON object containing chart parameters or None if an error occurs.
     """
+    # Adjust the prompt based on the chart type
+    if chart_type == "pie":
+        parameter_format = """
+            "x": "column_for_labels",
+            "y": "column_for_values",
+            "title": "Chart Title"
+        """
+    else:
+        parameter_format = """
+            "x": "column_for_x_axis",
+            "y": "column_for_y_axis",
+            "title": "Chart Title"
+        """
     prompt = f"""
     You are a helpful assistant. Always respond with valid JSON format only.
     Suggest how to best create a {chart_type} visualization.
-    Dataset columns: {list(data.columns)}
+    Dataset columns: {list(data.columns)}.
     Respond strictly in the following JSON format:
     {{
         "parameters": {{
-            "x": "column_name",
-            "y": "column_name",
-            "title": "Chart Title"
+            {parameter_format}
         }}
     }}
     """
     try:
+        # Send the prompt to the AI client
         response = client.chat.completions.create(
             model="mixtral-8x7b-32768",
             messages=[{"role": "user", "content": prompt}],
