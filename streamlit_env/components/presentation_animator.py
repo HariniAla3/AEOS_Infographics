@@ -13,6 +13,10 @@ import tempfile
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
+def easing_function(t):
+    """Ease-in-out cubic easing function."""
+    return t**3 if t < 0.5 else 1 - (-2 * t + 2)**3 / 2
+
 def create_animated_visualization(df, viz_config, duration=30, fps=30):
     """
     Create an animated visualization with smooth transitions and effects.
@@ -30,90 +34,140 @@ def create_animated_visualization(df, viz_config, duration=30, fps=30):
     total_frames = duration * fps
 
     try:
+        easing_values = np.array([easing_function(i / total_frames) for i in range(total_frames)])
+
         if viz_config['type'] == 'basic_bar':
             y_data = df[viz_config['y']].values
             x_data = df[viz_config['x']].values
             colors = px.colors.sequential.Blues
 
             for i in range(total_frames):
-                progress = np.power(i / total_frames, 0.5)
+                progress = easing_values[i]
                 current_y = y_data * progress
-                fig = go.Figure(data=[go.Bar(x=x_data, y=current_y, marker_color=colors[3])])
-                fig.update_layout(title=viz_config['title'], xaxis_title=viz_config['x'], yaxis_title=viz_config['y'])
+                color_idx = int(progress * (len(colors) - 1))
+                current_color = colors[color_idx]
+                
+                fig = go.Figure(data=[
+                    go.Bar(
+                        x=x_data,
+                        y=current_y,
+                        marker=dict(color=[current_color] * len(x_data), line=dict(width=0)),
+                        opacity=min(1.0, progress * 1.2)
+                    )
+                ])
+                fig.update_layout(
+                    title=viz_config['title'],
+                    xaxis_title=viz_config['x'],
+                    yaxis=dict(range=[0, max(y_data) * 1.1]),
+                    plot_bgcolor='white',
+                )
                 frames.append(fig)
 
         elif viz_config['type'] == 'stacked_bar':
             categories = df[viz_config['x']].unique()
             stack_cols = viz_config['stack_columns']
+
             for i in range(total_frames):
-                progress = np.power(i / total_frames, 0.5)
-                data = []
-                for col in stack_cols:
-                    data.append(go.Bar(name=col, x=categories, y=df[col] * progress))
+                progress = easing_values[i]
+                data = [
+                    go.Bar(name=col, x=categories, y=df[col] * progress, opacity=min(1.0, progress * 1.2))
+                    for col in stack_cols
+                ]
                 fig = go.Figure(data=data)
                 fig.update_layout(
                     barmode='stack',
                     title=viz_config['title'],
                     xaxis_title=viz_config['x'],
-                    yaxis_title='Values',
+                    yaxis=dict(range=[0, df[stack_cols].sum(axis=1).max() * 1.1]),
+                    plot_bgcolor='white',
                 )
                 frames.append(fig)
 
         elif viz_config['type'] == 'grouped_bar':
             categories = df[viz_config['x']].unique()
             group_cols = viz_config['group_columns']
+
             for i in range(total_frames):
-                progress = np.power(i / total_frames, 0.5)
-                data = []
-                for col in group_cols:
-                    data.append(go.Bar(name=col, x=categories, y=df[col] * progress))
+                progress = easing_values[i]
+                data = [
+                    go.Bar(name=col, x=categories, y=df[col] * progress, opacity=min(1.0, progress * 1.2))
+                    for col in group_cols
+                ]
                 fig = go.Figure(data=data)
                 fig.update_layout(
                     barmode='group',
                     title=viz_config['title'],
                     xaxis_title=viz_config['x'],
-                    yaxis_title='Values',
+                    yaxis=dict(range=[0, df[group_cols].max().max() * 1.1]),
+                    plot_bgcolor='white',
                 )
                 frames.append(fig)
 
         elif viz_config['type'] == 'line':
             x_data = df[viz_config['x']].values
             y_data = df[viz_config['y']].values
+
             for i in range(total_frames):
-                progress = i / total_frames
+                progress = easing_values[i]
                 points_to_show = max(2, int(len(x_data) * progress))
-                fig = go.Figure(data=[go.Scatter(x=x_data[:points_to_show], y=y_data[:points_to_show], mode='lines+markers')])
-                fig.update_layout(title=viz_config['title'], xaxis_title=viz_config['x'], yaxis_title=viz_config['y'])
+                fig = go.Figure(data=[
+                    go.Scatter(
+                        x=x_data[:points_to_show],
+                        y=y_data[:points_to_show],
+                        mode='lines+markers',
+                        line=dict(width=2),
+                        marker=dict(size=8, opacity=progress)
+                    )
+                ])
+                fig.update_layout(
+                    title=viz_config['title'],
+                    xaxis_title=viz_config['x'],
+                    yaxis=dict(range=[0, max(y_data) * 1.1]),
+                    plot_bgcolor='white',
+                )
                 frames.append(fig)
 
         elif viz_config['type'] == 'scatter':
             x_data = df[viz_config['x']].values
             y_data = df[viz_config['y']].values
+
             for i in range(total_frames):
-                progress = i / total_frames
+                progress = easing_values[i]
                 points_to_show = max(2, int(len(x_data) * progress))
-                fig = go.Figure(data=[go.Scatter(x=x_data[:points_to_show], y=y_data[:points_to_show], mode='markers')])
-                fig.update_layout(title=viz_config['title'], xaxis_title=viz_config['x'], yaxis_title=viz_config['y'])
+                fig = go.Figure(data=[
+                    go.Scatter(
+                        x=x_data[:points_to_show],
+                        y=y_data[:points_to_show],
+                        mode='markers',
+                        marker=dict(size=10, opacity=progress)
+                    )
+                ])
+                fig.update_layout(
+                    title=viz_config['title'],
+                    xaxis_title=viz_config['x'],
+                    yaxis=dict(range=[0, max(y_data) * 1.1]),
+                    plot_bgcolor='white',
+                )
                 frames.append(fig)
 
         elif viz_config['type'] == 'pie':
             values = df[viz_config['values']].values
             labels = df[viz_config['labels']].values
             colors = px.colors.qualitative.Set2
-            cumulative_values = np.zeros_like(values, dtype=float)
             frame_step = np.cumsum(values) / total_frames
-            for frame_idx in range(total_frames):
-                cumulative_values = np.minimum(values, frame_step * (frame_idx + 1))
+
+            for i in range(total_frames):
+                cumulative_values = np.minimum(values, frame_step * (i + 1))
                 fig = go.Figure(data=[
                     go.Pie(
                         labels=labels,
                         values=cumulative_values,
-                        textinfo="none" if frame_idx < total_frames * 0.8 else "label+percent",
+                        textinfo="none" if i < total_frames * 0.8 else "label+percent",
                         marker=dict(colors=colors, line=dict(color="white", width=1)),
                         hole=0.3
                     )
                 ])
-                fig.update_layout(title=viz_config["title"], plot_bgcolor="white")
+                fig.update_layout(title=viz_config['title'], plot_bgcolor='white')
                 frames.append(fig)
 
         return frames
