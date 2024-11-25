@@ -137,7 +137,7 @@ def text_to_dataframe_with_ai(client, text):
 
 def main():
     st.set_page_config(
-        page_title="Data Visualization & Insights Studio",
+        page_title="InfographX AI Studio",
         page_icon="📊",
         layout="wide"
     )
@@ -145,7 +145,7 @@ def main():
     # Initialize session state
     initialize_session_state()
 
-    st.title("📊 Advanced Data Visualization & Insights Studio")
+    st.title("📊 InfographX AI Studio")
 
     # Initialize Groq client
     client = init_groq_client()
